@@ -1,38 +1,39 @@
-# spear-mqtt-ctd-checker
+# spear-mqtt-ctd
 
-Standalone Python library and CLI that connects to the Spear MQTT broker, reads CTD (Conductivity, Temperature, Depth) sensor messages, and checks whether water **temperature** readings are **plausible** (valid) or **implausible** (invalid).
+A standalone Python library that evaluates the plausibility of sensor telemetry published by Spear buoys — CTD (Conductivity, Temperature, Depth), BNO attitude, and Acsense/Beamformer acoustic stats — and classifies each reading as **green** (healthy), **yellow** (no data / not settled yet), or **red** (implausible).
 
-This project is independent of the `edge-sensors` ROS/GUI codebase. It reuses the same CTD protobuf schema, MQTT broker config format, buoy serial → UUID algorithm, and seawater plausibility range as edge-sensors.
+It is designed to be embedded in a host application (e.g. a BIT — Built-In Test — dashboard or GUI) that already receives protobuf-decoded sensor messages, typically over MQTT from the Spear broker. This package does **not** open an MQTT connection or run a CLI itself; it provides the parsing, plausibility-check, and configuration building blocks that a host application wires together.
+
+It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same CTD protobuf schema, MQTT broker YAML config format, and buoy serial → UUID algorithm, so results are consistent between the two.
 
 ## What it does
 
-1. Connects to the Spear MQTT broker over TLS
-2. Subscribes to CTD topics: `devices/<buoy_uuid>/sensors/ctd`
-3. Deserializes `CtdSensor` protobuf payloads
-4. Evaluates temperature plausibility
-5. Reports results via terminal output, CLI, or **callbacks** for integration into other programs
+- Deserializes `CtdSensor` protobuf payloads received on `devices/<buoy_uuid>/sensors/ctd`
+- Runs each sensor's raw data through a plausibility check and returns a `SensorStatus` with a `green` / `yellow` / `red` level, a machine-readable reason code, and metrics
+- Ships checks for two sensor types out of the box: CTD temperature and BNO attitude — see [`registry.py`](src/spear_mqtt_ctd/registry.py)
+- Evaluates Acsense (ADC) + Beamformer acoustic health stats via a stateful `AcousticEvaluator`, with GUI-friendly label/detail helpers
+- Loads Spear MQTT broker connection details from the same nested YAML shape used by `edge-sensors`
+- Converts buoy serial numbers (`BEN001-0000-00002`) to the MQTT device UUIDs used in topic paths, and back, using the same UUID v5 algorithm as `edge-sensors`
 
-### Two run modes
+## Architecture
 
-| Mode | Description |
-|------|-------------|
-| **Monitor one buoy** | Live listening; prints on status change + optional 30s heartbeat; runs until Ctrl+C |
-| **Snapshot all buoys** | One-time table for all 35 buoys in the edge-sensors GUI dropdown; collects for ~15s then exits |
+```
+core.py        Frame / SensorSpec / SensorStatus / CheckResult + run_check() — the generic pipeline
+checks.py      check_ctd(), check_bno() — per-sensor plausibility logic
+registry.py    ctd_spec, bno_spec, SENSORS — wires checks.py functions into SensorSpec objects
+parser.py      CTD protobuf (de)serialization, topic helpers
+acoustic_*.py  Separate pipeline for Acsense/Beamformer acoustic stats (config, checks, stateful
+               evaluator, GUI status/display helpers) — not part of the core.py Frame/SensorSpec flow
+config.py      Broker YAML loading (BrokerConfig)
+uuid.py        Buoy serial <-> UUID conversion, interactive prompts for buoy/mode selection
+```
 
-## Features
-
-- TLS MQTT with username/password (same YAML config as edge-sensors)
-- Interactive buoy selection: `BEN` / `MDA` + unit number (e.g. `02` → `BEN001-0000-00002`)
-- Fleet snapshot aligned with edge-sensors GUI dropdown (`spear_gui._buoy_strs`)
-- Plausibility checks aligned with edge-sensors `atlas_ct` seawater range
-- Importable Python API with callbacks for valid/invalid transitions
-- Parse-only API (no MQTT) for testing or custom pipelines
-- Unit tests (`pytest`)
+A host application owns the MQTT connection, decodes protobuf messages into a `Frame`, and calls `run_check()` (or the acoustic evaluator) to get a status it can render.
 
 ## Requirements
 
 - Python 3.10+
-- `protoc` (Protocol Buffers compiler) only if regenerating `ctd_pb2.py` from `proto/ctd.proto`
+- `protoc` (Protocol Buffers compiler) — only needed to regenerate `ctd_pb2.py` from `proto/ctd.proto` when building from source
 
 ```bash
 # Ubuntu
@@ -42,7 +43,7 @@ sudo apt install protobuf-compiler
 brew install protobuf
 ```
 
-## Install
+## Installation
 
 ```bash
 git clone https://github.com/<your-org>/spear-mqtt-ctd-checker.git
@@ -59,9 +60,71 @@ pip install ".[test]"
 pytest -v
 ```
 
-## Broker configuration
+## Usage
 
-Use the same nested YAML format as edge-sensors (e.g. `~/.ros/mqtt-broker-spear-hivemq.yaml`):
+### Run the CTD check on a parsed message
+
+```python
+from spear_mqtt_ctd import Frame, ctd_spec, run_check
+
+frame = Frame(ctd=parsed_ctd_sensor)   # a spear_mqtt_ctd.ctd_pb2.CtdSensor
+status = run_check(ctd_spec, frame)
+
+print(status.level, status.plausible, status.reason)
+# e.g. "green" True None
+# or   "red"   False "stale"
+```
+
+`examples/run_checker.py` has a minimal, runnable version of this with a mocked CTD message.
+
+### Run every registered sensor check
+
+```python
+from spear_mqtt_ctd import SENSORS, run_check
+from spear_mqtt_ctd.core import Frame
+
+frame = Frame(ctd=parsed_ctd_sensor, buoy_status=parsed_buoy_status)
+
+for spec in SENSORS:
+    status = run_check(spec, frame)
+    print(f"{spec.name}: {status.level} ({status.reason})")
+```
+
+`Frame.state` persists between calls on the same `Frame` instance — reuse one `Frame` per buoy across successive readings so step/rate checks (like the CTD `max_step_c` check) have a previous value to compare against.
+
+### Parse a raw CTD protobuf payload
+
+```python
+from spear_mqtt_ctd import extract_temperature, is_ctd_topic, parse_ctd_payload
+
+if is_ctd_topic(mqtt_topic):
+    ctd = parse_ctd_payload(mqtt_payload_bytes)
+    temperature_c = extract_temperature(ctd)
+```
+
+### Evaluate acoustic (Acsense + Beamformer) health
+
+```python
+from spear_mqtt_ctd import AcousticEvaluator
+
+evaluator = AcousticEvaluator()  # or AcousticEvaluator(AcousticConfig(target_sps=52000.0))
+status = evaluator.evaluate(acsense_stats, beamformer_stats)
+
+print(status.plausible, status.reason, status.sample_pct, status.chunk_pct)
+```
+
+Render it for a GUI with the display helpers:
+
+```python
+from spear_mqtt_ctd import acoustic_status_label, acoustic_status_level
+
+acoustic_status_level(status)  # "green" | "yellow" | "red"
+acoustic_status_label(status)  # e.g. "PLAUSIBLE" / "IMPLAUSIBLE (adc_stale)"
+```
+
+### Load Spear MQTT broker config
+
+Uses the same nested YAML format as `edge-sensors` (e.g. `~/.ros/mqtt-broker-spear-hivemq.yaml`):
 
 ```yaml
 /**/*:
@@ -72,108 +135,29 @@ Use the same nested YAML format as edge-sensors (e.g. `~/.ros/mqtt-broker-spear-
     pass: your-password
 ```
 
+```python
+from spear_mqtt_ctd import load_broker_config
+
+config = load_broker_config("~/.ros/mqtt-broker-spear-hivemq.yaml")
+print(config.host, config.port, config.user)
+```
+
 Do not commit credentials to git.
 
----
+### Buoy serial ↔ UUID conversion
 
-## How to run
+Serials follow `edge-sensors` naming: `{BEN|MDA}001-0000-{unit zero-padded to 5 digits}`.
 
-### Interactive (prompts for mode, then buoy if monitoring one)
+```python
+from spear_mqtt_ctd import build_buoy_serial, serial_to_buoy_uuid
 
-**CLI:**
-
-```bash
-spear-ctd-checker --config ~/.ros/mqtt-broker-spear-hivemq.yaml
+serial = build_buoy_serial("MDA", "27")       # "MDA001-0000-00027"
+buoy_uuid = serial_to_buoy_uuid(serial)        # UUID used in devices/<uuid>/sensors/ctd
 ```
 
-**Example script:**
+`uuid.py` also provides interactive prompt helpers (`prompt_buoy_serial`, `prompt_monitor_mode`, `resolve_buoy_selection`, `resolve_monitor_mode`) for host applications that want to ask a user to pick a buoy or run mode on the terminal.
 
-```bash
-python examples/run_checker.py
-```
-
-You will see:
-
-```text
-Select mode:
-  1) Monitor one buoy (live updates + heartbeat)
-  2) Snapshot all buoys (one-time status list)
-Choice (1/2):
-```
-
-- **Option 1** — prompts for `BEN`/`MDA` and unit (e.g. `02`), then live monitoring
-- **Option 2** — snapshot of all GUI fleet buoys, then exit
-
-Stop live monitoring with **Ctrl+C**.
-
-If `spear-ctd-checker` is not found:
-
-```bash
-pip install .
-# or
-.venv/bin/spear-ctd-checker --config ~/.ros/mqtt-broker-spear-hivemq.yaml
-```
-
-### Monitor one buoy (flags, no mode prompt)
-
-```bash
-spear-ctd-checker \
-  --config ~/.ros/mqtt-broker-spear-hivemq.yaml \
-  --family MDA \
-  --unit 27
-```
-
-Or full serial / UUID:
-
-```bash
-spear-ctd-checker --config ~/.ros/mqtt-broker-spear-hivemq.yaml --serial MDA001-0000-00027
-spear-ctd-checker --config ~/.ros/mqtt-broker-spear-hivemq.yaml --buoy-uuid <uuid>
-```
-
-Optional tuning:
-
-```bash
-spear-ctd-checker \
-  --config ~/.ros/mqtt-broker-spear-hivemq.yaml \
-  --family BEN --unit 02 \
-  --max-age-sec 60 \
-  --max-step-c 2.0 \
-  --heartbeat-sec 30
-```
-
-Set `--heartbeat-sec 0` to disable periodic status prints.
-
-### Snapshot all buoys (one-shot)
-
-```bash
-spear-ctd-checker \
-  --config ~/.ros/mqtt-broker-spear-hivemq.yaml \
-  --snapshot
-```
-
-Longer collection window (if buoys publish CTD slowly):
-
-```bash
-spear-ctd-checker \
-  --config ~/.ros/mqtt-broker-spear-hivemq.yaml \
-  --snapshot \
-  --snapshot-wait-sec 60
-```
-
-Example output:
-
-```text
-Snapshot results: 3 buoy(s) with data, 32 with no data
-SERIAL                 STATUS                       TEMP
-----------------------------------------------------------------
-BEN001-0000-00002      PLAUSIBLE                 12.340 C
-MDA001-0000-00027      NO DATA                          -
-MDA001-0000-00003      IMPLAUSIBLE (above_range) 87.200 C
-```
-
-`NO DATA` means no CTD message arrived for that buoy during the snapshot window — not necessarily that the buoy is offline.
-
-### Run tests (no broker required)
+### Run tests (no broker or MQTT connection required)
 
 ```bash
 pytest -v
@@ -181,142 +165,67 @@ pytest -v
 
 On systems with ROS installed, pytest is preconfigured in `pyproject.toml` to avoid plugin conflicts (`-p no:launch_testing`).
 
----
-
-## Output behavior (monitor one buoy)
-
-| Output | When |
-|--------|------|
-| `PLAUSIBLE` (green) | Status changes to valid |
-| `IMPLAUSIBLE` (red) | Status changes to invalid |
-| `WAITING` (yellow) | Heartbeat, no readings yet |
-| Heartbeat every 30s | Repeats latest status even if unchanged |
-
-Callbacks fire on **status change only**, not every MQTT message.
-
----
-
-## Buoy serial format
-
-Serials follow edge-sensors naming:
-
-```text
-{BEN|MDA}001-0000-{unit zero-padded to 5 digits}
-```
-
-Examples:
-
-- `BEN` + `02` → `BEN001-0000-00002`
-- `MDA` + `27` → `MDA001-0000-00027`
-
-MQTT topics use the buoy **UUID**, not the serial. Conversion uses the same UUID v5 algorithm as edge-sensors (`serial_to_buoy_uuid`).
-
----
-
 ## Plausibility rules
+
+### CTD temperature (`ctd_spec`)
 
 | Check | Reason code | Default |
 |-------|-------------|---------|
+| Data present with a valid stamp | `no_data` (yellow) | — |
 | Finite temperature | `not_finite` | reject NaN/inf |
-| Seawater range (-6, 45) °C | `below_range`, `above_range` | matches edge-sensors `atlas_ct` |
-| Reading age from protobuf `stamp` | `stale` | max 60 s (skipped if stamp missing) |
-| Step from previous reading | `unstable` | max 2.0 °C (skipped on first reading) |
+| Minimum seawater temperature | `does_not_meet_min_temp_c` | -6.0 °C |
+| Maximum seawater temperature | `does_not_meet_max_temp_c` | 45.0 °C |
+| Reading age | `stale` | max 60 s |
+| Step from previous reading | `unstable_temperature` | max 2.0 °C (skipped on first reading) |
 
----
+### BNO attitude (`bno_spec`)
 
-## Library usage (import into other programs)
+| Check | Reason code | Default |
+|-------|-------------|---------|
+| Data present with a valid stamp | `no_data` (yellow) | — |
+| Reading age | `stale` | max 90 s |
+| Rotation rate | `exceeds_max_dps` | max 100 dps |
+| Accept rate | `below_min_accept_rate` | min 0.6 |
+| Off-vertical / heading range | `above_max_range_deg` | max 15° |
 
-Install the package, then import from `spear_mqtt_ctd`.
+### Acoustic (Acsense + Beamformer)
 
-### Live MQTT with custom actions on valid/invalid
+| Check | Reason code | Default |
+|-------|-------------|---------|
+| ADC / beamformer data present | `no_adc_data`, `no_beamformer_data` (yellow) | — |
+| ADC / beamformer stamp present | `no_adc_stamp`, `no_beamformer_stamp` (yellow) | — |
+| Reading age | `adc_stale`, `beamformer_stale` | max 90 s |
+| Sample rate | `adc_sps_out_of_range` | 52000 sps ± 2% |
+| Minimum samples/chunks before judging | `settling_samples`, `settling_chunks` | 10 each |
+| Sample accept rate | `low_sample_accept` | min 99% |
+| Chunk accept rate | `low_chunk_accept` | min 99% |
 
-```python
-from spear_mqtt_ctd import CtdMqttClient, serial_to_buoy_uuid
+All thresholds are configurable — pass a custom `dict` in place of `ctd_spec.default_threshold` / `bno_spec.default_threshold`, or a custom `AcousticConfig` to `AcousticEvaluator`.
 
-def on_valid(temp, ctd):
-    # your action when reading becomes plausible
-    ...
+## Environment variables
 
-def on_invalid(temp, reason, ctd):
-    # your action when reading becomes implausible
-    # reason: not_finite, below_range, above_range, stale, unstable
-    ...
-
-client = CtdMqttClient(
-    config_path="~/.ros/mqtt-broker-spear-hivemq.yaml",
-    buoy_uuid=serial_to_buoy_uuid("MDA001-0000-00027"),
-    on_plausible=on_valid,
-    on_implausible=on_invalid,
-)
-
-client.connect()
-client.start()   # background MQTT thread
-# ... your program ...
-client.stop()
-```
-
-### Parse-only (no MQTT)
-
-```python
-from spear_mqtt_ctd import (
-    evaluate_temperature_plausibility,
-    extract_temperature,
-    parse_ctd_payload,
-)
-
-ctd = parse_ctd_payload(raw_payload_bytes)
-temp = extract_temperature(ctd)
-result = evaluate_temperature_plausibility(temp, stamp=ctd.stamp)
-
-if result.plausible:
-    handle_valid(temp)
-else:
-    handle_invalid(temp, result.reason)
-```
-
-### Fleet snapshot (programmatic)
-
-```python
-from spear_mqtt_ctd import run_fleet_snapshot
-
-rows = run_fleet_snapshot("~/.ros/mqtt-broker-spear-hivemq.yaml", wait_sec=15)
-
-for row in rows:
-    if row.status is None:
-        handle_no_data(row.serial)
-    elif row.status.plausible:
-        handle_valid(row.serial, row.status.temperature)
-    else:
-        handle_invalid(row.serial, row.status.temperature, row.status.reason)
-```
-
-### Public API (main exports)
-
-`CtdMqttClient`, `evaluate_temperature_plausibility`, `parse_ctd_payload`, `serial_to_buoy_uuid`, `build_buoy_serial`, `run_fleet_snapshot`, `gui_fleet_serials`, `PlausibilityResult`, and others — see `src/spear_mqtt_ctd/__init__.py`.
-
----
+None. This library takes all configuration as explicit function/constructor arguments — broker credentials are loaded from a YAML file path you supply to `load_broker_config()`, and check thresholds are plain Python values (see `registry.py` and `AcousticConfig`). It does not read any values from the process environment.
 
 ## Project layout
 
 ```text
 proto/ctd.proto                 # CTD protobuf schema (from edge-sensors)
 src/spear_mqtt_ctd/
-  config.py                     # Load broker YAML
-  uuid.py                       # Serial/UUID, prompts, mode selection
-  fleet.py                      # GUI fleet buoy list (35 serials)
-  parser.py                     # Deserialize CTD protobuf
-  health.py                     # Plausibility + stability checks
-  mqtt_client.py                # MQTT client (one buoy)
-  snapshot.py                   # Fleet snapshot (all buoys)
-  heartbeat.py                  # Periodic status for live monitor
-  terminal.py                   # Colored / table output
-  cli.py                        # spear-ctd-checker command
-  status.py                     # Latest reading snapshot
+  core.py                       # Frame / SensorSpec / SensorStatus / CheckResult + run_check()
+  checks.py                     # check_ctd(), check_bno()
+  registry.py                   # ctd_spec, bno_spec, SENSORS
+  parser.py                     # CTD protobuf (de)serialization, topic helpers
+  acoustic_config.py            # AcousticConfig thresholds
+  acoustic_health.py            # validate_acoustic() — Acsense/Beamformer plausibility
+  acoustic_evaluator.py         # Stateful AcousticEvaluator
+  acoustic_status.py            # AcousticReadingStatus
+  acoustic_display.py           # GUI label/detail/level helpers (no ANSI codes)
+  config.py                     # load_broker_config() — Spear MQTT broker YAML
+  uuid.py                       # Serial <-> UUID conversion, interactive prompts
+  ctd_pb2.py                    # Generated from proto/ctd.proto (do not edit by hand)
 tests/                          # pytest unit tests
-examples/run_checker.py         # Minimal interactive example
+examples/run_checker.py         # Minimal example: parse + run_check on a mocked CTD message
 ```
-
----
 
 ## Relationship to edge-sensors
 
@@ -325,12 +234,9 @@ examples/run_checker.py         # Minimal interactive example
 | `proto/ctd.proto` | Same message format |
 | MQTT broker YAML | Same config path/shape |
 | `serial_to_buoy_uuid` | Same algorithm |
-| Seawater range -6°C to 45°C | Same as `atlas_ct` |
-| GUI dropdown buoy list | Used for fleet snapshot |
+| CTD seawater range -6°C to 45°C | Same default thresholds |
 
 This repo does **not** require ROS or the Spear GUI to run.
-
----
 
 ## License
 
