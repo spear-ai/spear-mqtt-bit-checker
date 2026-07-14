@@ -168,3 +168,106 @@ def check_bno(
         reason=None,
         metrics = {"degree_range": max(offvert, heading)}
     )
+
+#---- Function to validate Acoustic Acsense and Beamformer - outputs CheckResult Object ----
+def check_acoustic(
+    frame: Frame,
+    cfg: dict[str, float],
+) -> CheckResult:
+
+    #no data in yet
+    if frame.buoy_status is None:
+        return CheckResult(
+            plausible=False,
+            reason="no_data",
+            metrics=None,
+        )
+    acsense = getattr(frame.buoy_status, "acsense_stats", None)
+    beamformer = getattr(frame.buoy_status, "beamformer_stats", None)
+
+    if acsense is None or beamformer is None:
+        return CheckResult(
+            plausible=False,
+            reason="no_data",
+            metrics=None,
+        )
+    reading_time_acsense = _stamp_datetime(getattr(acsense, "stamp", None))
+    reading_time_beamformer = _stamp_datetime(getattr(beamformer, "stamp", None))
+
+    if reading_time_acsense is None or reading_time_beamformer is None:
+        return CheckResult(
+            plausible=False,
+            reason="no_data",
+            metrics=None,
+        )
+
+    #check if data is stale
+    reference = datetime.now(tz=UTC)
+    ac_age_sec = (reference - reading_time_acsense).total_seconds()
+    if ac_age_sec > cfg["max_age_sec"]:
+        return CheckResult(
+            plausible=False,
+            reason="stale",
+            metrics={"reading age": ac_age_sec},
+        )
+
+    beamformer_age_sec = (reference - reading_time_beamformer).total_seconds()
+    if beamformer_age_sec > cfg["max_age_sec"]:
+        return CheckResult(
+            plausible=False,
+            reason="stale",
+            metrics={"reading age": beamformer_age_sec},
+        )
+
+    #samples per second check
+    ac_sps = float(getattr(acsense, "samples_received_1sec", 0))
+    lo = cfg["target_sps"] * (1.0 - cfg["sps_tolerance"])
+    hi = cfg["target_sps"] * (1.0 + cfg["sps_tolerance"])
+    if ac_sps < lo or ac_sps > hi:
+        return CheckResult(
+            plausible=False,
+            reason="out_of_sps_range",
+            metrics={"sps": ac_sps},
+        )
+
+    #check min_total_samples and min_sample_accept_pct
+    received = int(getattr(acsense, "samples_received_total", 0))
+    missed = int(getattr(acsense, "samples_missed_total", 0))
+    sample_total = received + missed
+    if sample_total < cfg["min_total_samples"]:
+        return CheckResult(
+            plausible=False,
+            reason="settling_samples",
+            metrics={"total samples": sample_total},
+        )
+    sample_pct = 100.0 * received / sample_total
+    if sample_pct < cfg["min_sample_accept_pct"]:
+        return CheckResult(
+            plausible=False,
+            reason="low_sample_accept",
+            metrics={"sample_pct": sample_pct},
+        )
+
+    #check beamformer chunks
+    good = int(getattr(beamformer, "chunks_good_total", 0))
+    bad = int(getattr(beamformer, "chunks_bad_total", 0))
+    chunk_total = good + bad
+    if chunk_total < cfg["min_total_chunks"]:
+        return CheckResult(
+            plausible=False,
+            reason="settling_chunks",
+            metrics={"total chunks": chunk_total},
+        )
+    chunk_pct = 100.0 * good / chunk_total
+    if chunk_pct < cfg["min_chunk_accept_pct"]:
+        return CheckResult(
+            plausible=False,
+            reason="low_chunk_accept",
+            metrics={"chunk_pct": chunk_pct},
+        )
+
+    return CheckResult(
+        plausible=True,
+        reason=None,
+        metrics={"sample_pct": sample_pct, "chunk_pct": chunk_pct},
+    )

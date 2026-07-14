@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from spear_mqtt_ctd.checks import check_bno, check_ctd
+from spear_mqtt_ctd.checks import check_acoustic, check_bno, check_ctd
 from spear_mqtt_ctd.core import SensorSpec
 
 ctd_spec = SensorSpec(
@@ -21,5 +21,20 @@ bno_spec = SensorSpec(
     yellow_reasons=frozenset({"no_data"})
 )
 
+acoustic_spec = SensorSpec(
+    key="acoustic_acsense_and_beamformer",
+    name="Acoustic Acsense and Beamformer",
+    default_threshold={
+        "max_age_sec": 90.0,
+        "target_sps": 52000.0,
+        "sps_tolerance": 0.02,
+        "min_total_samples": 10.0,
+        "min_sample_accept_pct": 99.0,
+        "min_total_chunks": 10.0,
+        "min_chunk_accept_pct": 99.0,
+    },
+    check_func=check_acoustic,
+    yellow_reasons=frozenset({"no_data", "settling_samples", "settling_chunks"}),
+)
 #add sensors here
-SENSORS = [ctd_spec, bno_spec]
+SENSORS = [ctd_spec, bno_spec, acoustic_spec]

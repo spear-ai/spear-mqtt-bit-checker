@@ -10,8 +10,7 @@ It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same CTD
 
 - Deserializes `CtdSensor` protobuf payloads received on `devices/<buoy_uuid>/sensors/ctd`
 - Runs each sensor's raw data through a plausibility check and returns a `SensorStatus` with a `green` / `yellow` / `red` level, a machine-readable reason code, and metrics
-- Ships checks for two sensor types out of the box: CTD temperature and BNO attitude — see [`registry.py`](src/spear_mqtt_ctd/registry.py)
-- Evaluates Acsense (ADC) + Beamformer acoustic health stats via a stateful `AcousticEvaluator`, with GUI-friendly label/detail helpers
+- Ships checks for three sensor types out of the box: CTD temperature, BNO attitude, and Acsense/Beamformer acoustic — see [`registry.py`](src/spear_mqtt_ctd/registry.py)
 - Loads Spear MQTT broker connection details from the same nested YAML shape used by `edge-sensors`
 - Converts buoy serial numbers (`BEN001-0000-00002`) to the MQTT device UUIDs used in topic paths, and back, using the same UUID v5 algorithm as `edge-sensors`
 
@@ -19,16 +18,14 @@ It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same CTD
 
 ```
 core.py        Frame / SensorSpec / SensorStatus / CheckResult + run_check() — the generic pipeline
-checks.py      check_ctd(), check_bno() — per-sensor plausibility logic
-registry.py    ctd_spec, bno_spec, SENSORS — wires checks.py functions into SensorSpec objects
+checks.py      check_ctd(), check_bno(), check_acoustic() — per-sensor plausibility logic
+registry.py    ctd_spec, bno_spec, acoustic_spec, SENSORS — wires checks into SensorSpec objects
 parser.py      CTD protobuf (de)serialization, topic helpers
-acoustic_*.py  Separate pipeline for Acsense/Beamformer acoustic stats (config, checks, stateful
-               evaluator, GUI status/display helpers) — not part of the core.py Frame/SensorSpec flow
 config.py      Broker YAML loading (BrokerConfig)
 uuid.py        Buoy serial <-> UUID conversion, interactive prompts for buoy/mode selection
 ```
 
-A host application owns the MQTT connection, decodes protobuf messages into a `Frame`, and calls `run_check()` (or the acoustic evaluator) to get a status it can render.
+A host application owns the MQTT connection, decodes protobuf messages into a `Frame`, and calls `run_check()` to get a status it can render.
 
 ## Requirements
 
@@ -105,21 +102,13 @@ if is_ctd_topic(mqtt_topic):
 ### Evaluate acoustic (Acsense + Beamformer) health
 
 ```python
-from spear_mqtt_ctd import AcousticEvaluator
+from spear_mqtt_ctd import Frame, acoustic_spec, run_check
 
-evaluator = AcousticEvaluator()  # or AcousticEvaluator(AcousticConfig(target_sps=52000.0))
-status = evaluator.evaluate(acsense_stats, beamformer_stats)
+frame = Frame(buoy_status=parsed_buoy_status)
+status = run_check(acoustic_spec, frame)
 
-print(status.plausible, status.reason, status.sample_pct, status.chunk_pct)
-```
-
-Render it for a GUI with the display helpers:
-
-```python
-from spear_mqtt_ctd import acoustic_status_label, acoustic_status_level
-
-acoustic_status_level(status)  # "green" | "yellow" | "red"
-acoustic_status_label(status)  # e.g. "PLAUSIBLE" / "IMPLAUSIBLE (adc_stale)"
+print(status.level, status.plausible, status.reason, status.metrics)
+# e.g. "green" True None {'sample_pct': 100.0, 'chunk_pct': 100.0}
 ```
 
 ### Load Spear MQTT broker config
@@ -188,23 +177,23 @@ On systems with ROS installed, pytest is preconfigured in `pyproject.toml` to av
 | Accept rate | `below_min_accept_rate` | min 0.6 |
 | Off-vertical / heading range | `above_max_range_deg` | max 15° |
 
-### Acoustic (Acsense + Beamformer)
+### Acoustic Acsense + Beamformer (`acoustic_spec`)
 
 | Check | Reason code | Default |
 |-------|-------------|---------|
-| ADC / beamformer data present | `no_adc_data`, `no_beamformer_data` (yellow) | — |
-| ADC / beamformer stamp present | `no_adc_stamp`, `no_beamformer_stamp` (yellow) | — |
-| Reading age | `adc_stale`, `beamformer_stale` | max 90 s |
-| Sample rate | `adc_sps_out_of_range` | 52000 sps ± 2% |
-| Minimum samples/chunks before judging | `settling_samples`, `settling_chunks` | 10 each |
+| Acsense / beamformer data present with valid stamps | `no_data` (yellow) | — |
+| Reading age | `stale` | max 90 s |
+| Sample rate | `out_of_sps_range` | 52000 sps ± 2% |
+| Minimum samples before judging | `settling_samples` (yellow) | 10 |
+| Minimum chunks before judging | `settling_chunks` (yellow) | 10 |
 | Sample accept rate | `low_sample_accept` | min 99% |
 | Chunk accept rate | `low_chunk_accept` | min 99% |
 
-All thresholds are configurable — pass a custom `dict` in place of `ctd_spec.default_threshold` / `bno_spec.default_threshold`, or a custom `AcousticConfig` to `AcousticEvaluator`.
+All thresholds are configurable — pass a custom `dict` in place of a sensor's `default_threshold`.
 
 ## Environment variables
 
-None. This library takes all configuration as explicit function/constructor arguments — broker credentials are loaded from a YAML file path you supply to `load_broker_config()`, and check thresholds are plain Python values (see `registry.py` and `AcousticConfig`). It does not read any values from the process environment.
+None. This library takes all configuration as explicit function/constructor arguments — broker credentials are loaded from a YAML file path you supply to `load_broker_config()`, and check thresholds are plain Python values (see `registry.py`). It does not read any values from the process environment.
 
 ## Project layout
 
@@ -212,14 +201,9 @@ None. This library takes all configuration as explicit function/constructor argu
 proto/ctd.proto                 # CTD protobuf schema (from edge-sensors)
 src/spear_mqtt_ctd/
   core.py                       # Frame / SensorSpec / SensorStatus / CheckResult + run_check()
-  checks.py                     # check_ctd(), check_bno()
-  registry.py                   # ctd_spec, bno_spec, SENSORS
+  checks.py                     # check_ctd(), check_bno(), check_acoustic()
+  registry.py                   # ctd_spec, bno_spec, acoustic_spec, SENSORS
   parser.py                     # CTD protobuf (de)serialization, topic helpers
-  acoustic_config.py            # AcousticConfig thresholds
-  acoustic_health.py            # validate_acoustic() — Acsense/Beamformer plausibility
-  acoustic_evaluator.py         # Stateful AcousticEvaluator
-  acoustic_status.py            # AcousticReadingStatus
-  acoustic_display.py           # GUI label/detail/level helpers (no ANSI codes)
   config.py                     # load_broker_config() — Spear MQTT broker YAML
   uuid.py                       # Serial <-> UUID conversion, interactive prompts
   ctd_pb2.py                    # Generated from proto/ctd.proto (do not edit by hand)
@@ -240,4 +224,4 @@ This repo does **not** require ROS or the Spear GUI to run.
 
 ## License
 
-Proprietary — adjust as needed for your organization.
+Proprietary
