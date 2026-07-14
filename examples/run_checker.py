@@ -1,47 +1,31 @@
 #!/usr/bin/env python3
-"""Minimal example: subscribe to CTD MQTT messages and check temperature plausibility."""
+"""Minimal example: parse a CTD payload and run the CTD check pipeline."""
 
 from __future__ import annotations
 
-import threading
+from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
-from spear_mqtt_ctd import CtdMqttClient
-from spear_mqtt_ctd.heartbeat import start_heartbeat_thread
-from spear_mqtt_ctd.snapshot import run_fleet_snapshot
-from spear_mqtt_ctd.terminal import (
-    DEFAULT_HEARTBEAT_SEC,
-    format_implausible,
-    format_plausible,
-)
-from spear_mqtt_ctd.uuid import resolve_buoy_selection, resolve_monitor_mode
+from spear_mqtt_ctd import Frame, ctd_spec, run_check
 
-DEFAULT_CONFIG_PATH = "~/.ros/mqtt-broker-spear-hivemq.yaml"
+
+def _sample_ctd(*, temp_c: float = 12.3, age_sec: float = 5.0) -> MagicMock:
+    """Build a CTD-like object with stamp + temperature (same shape as protobuf)."""
+    dt = datetime.now(tz=timezone.utc).timestamp() - age_sec
+    ctd = MagicMock()
+    ctd.temperature = temp_c
+    ctd.stamp = MagicMock()
+    ctd.stamp.seconds = int(dt)
+    ctd.stamp.nanos = int((dt % 1) * 1e9)
+    return ctd
 
 
 def main() -> None:
-    mode = resolve_monitor_mode()
-    if mode == "snapshot":
-        run_fleet_snapshot(DEFAULT_CONFIG_PATH)
-        return
-
-    selection = resolve_buoy_selection()
-    stop_event = threading.Event()
-    client = CtdMqttClient(
-        config_path=DEFAULT_CONFIG_PATH,
-        buoy_uuid=selection.buoy_uuid,
-        on_plausible=lambda temp, _ctd: print(format_plausible(temp)),
-        on_implausible=lambda temp, reason, _ctd: print(format_implausible(temp, reason)),
-    )
-    client.connect()
-    print(f"Buoy serial: {selection.serial} (UUID: {selection.buoy_uuid})")
-    print(f"Listening on {client.ctd_topic} (Ctrl+C to stop)")
-    print(f"Status heartbeat every {DEFAULT_HEARTBEAT_SEC:g}s")
-    start_heartbeat_thread(client, stop_event, interval_sec=DEFAULT_HEARTBEAT_SEC)
-    try:
-        client.start_blocking()
-    except KeyboardInterrupt:
-        stop_event.set()
-        client.stop()
+    frame = Frame(ctd=_sample_ctd())
+    status = run_check(ctd_spec, frame)
+    print(f"level={status.level} plausible={status.plausible} reason={status.reason}")
+    if status.metrics:
+        print(f"metrics={status.metrics}")
 
 
 if __name__ == "__main__":

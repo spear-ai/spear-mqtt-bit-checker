@@ -1,18 +1,22 @@
 """Public API for spear-mqtt-ctd."""
 
-from spear_mqtt_ctd.config import BrokerConfig, load_broker_config
-from spear_mqtt_ctd.fleet import GUI_FLEET_SERIALS, gui_fleet_serials
-from spear_mqtt_ctd.health import (
-    DEFAULT_MAX_AGE_SEC,
-    DEFAULT_MAX_STEP_C,
-    MAX_PLAUSIBLE_TEMP_C,
-    MIN_PLAUSIBLE_TEMP_C,
-    PlausibilityResult,
-    evaluate_temperature_plausibility,
-    is_finite_temperature,
-    is_in_seawater_range,
+from spear_mqtt_ctd.acoustic_config import AcousticConfig
+from spear_mqtt_ctd.acoustic_display import (
+    acoustic_detail_text_for_status,
+    acoustic_status_detail,
+    acoustic_status_label,
+    acoustic_status_level,
+    acoustic_status_metric_text,
 )
-from spear_mqtt_ctd.mqtt_client import CtdMqttClient
+from spear_mqtt_ctd.acoustic_evaluator import AcousticEvaluator
+from spear_mqtt_ctd.acoustic_health import (
+    AcousticPlausibilityResult,
+    has_data,
+    validate_acoustic,
+)
+from spear_mqtt_ctd.acoustic_status import AcousticReadingStatus
+from spear_mqtt_ctd.config import BrokerConfig, load_broker_config
+from spear_mqtt_ctd.core import Frame, SensorStatus, run_check
 from spear_mqtt_ctd.parser import (
     CTD_TOPIC_SUFFIX,
     CtdParseError,
@@ -21,12 +25,7 @@ from spear_mqtt_ctd.parser import (
     is_ctd_topic,
     parse_ctd_payload,
 )
-from spear_mqtt_ctd.snapshot import (
-    DEFAULT_SNAPSHOT_WAIT_SEC,
-    SnapshotRow,
-    build_snapshot_rows,
-    run_fleet_snapshot,
-)
+from spear_mqtt_ctd.registry import SENSORS, bno_spec, ctd_spec
 from spear_mqtt_ctd.uuid import (
     BuoySelection,
     MonitorMode,
@@ -39,35 +38,37 @@ from spear_mqtt_ctd.uuid import (
 )
 
 __all__ = [
+    "AcousticConfig",
+    "AcousticEvaluator",
+    "AcousticPlausibilityResult",
+    "AcousticReadingStatus",
     "BrokerConfig",
     "BuoySelection",
     "CTD_TOPIC_SUFFIX",
-    "CtdMqttClient",
     "CtdParseError",
-    "DEFAULT_MAX_AGE_SEC",
-    "DEFAULT_MAX_STEP_C",
-    "DEFAULT_SNAPSHOT_WAIT_SEC",
-    "GUI_FLEET_SERIALS",
-    "MAX_PLAUSIBLE_TEMP_C",
-    "MIN_PLAUSIBLE_TEMP_C",
+    "Frame",
     "MonitorMode",
-    "PlausibilityResult",
-    "SnapshotRow",
+    "SENSORS",
+    "SensorStatus",
+    "acoustic_detail_text_for_status",
+    "acoustic_status_detail",
+    "acoustic_status_label",
+    "acoustic_status_level",
+    "acoustic_status_metric_text",
+    "bno_spec",
     "build_buoy_serial",
-    "build_snapshot_rows",
     "buoy_uuid_from_ctd_topic",
-    "evaluate_temperature_plausibility",
+    "ctd_spec",
     "extract_temperature",
-    "gui_fleet_serials",
+    "has_data",
     "is_ctd_topic",
-    "is_finite_temperature",
-    "is_in_seawater_range",
     "load_broker_config",
     "parse_ctd_payload",
     "prompt_buoy_serial",
     "prompt_monitor_mode",
     "resolve_buoy_selection",
     "resolve_monitor_mode",
-    "run_fleet_snapshot",
+    "run_check",
     "serial_to_buoy_uuid",
+    "validate_acoustic",
 ]
