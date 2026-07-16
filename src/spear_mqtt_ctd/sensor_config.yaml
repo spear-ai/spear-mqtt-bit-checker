@@ -3,7 +3,7 @@ sensors:
     thresholds:
       min_temp_c: -6.0
       max_temp_c: 45.0
-      max_age_sec: 6.0
+      max_age_sec: 60.0
       max_step_c: 2.0
   
   bno_attitude:
@@ -14,7 +14,7 @@ sensors:
       max_dps: 100.0
 
   acoustic_acsense_and_beamformer:
-    threshold:
+    thresholds:
       max_age_sec: 90.0
       target_sps: 52000.0
       sps_tolerance: 0.02

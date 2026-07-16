@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from spear_mqtt_ctd.checks import check_acoustic, check_bno, check_ctd
 from spear_mqtt_ctd.core import SensorSpec
-import yaml
 
 #Defines the defaults for the SensorSpecs
 ctd_spec = SensorSpec(
@@ -47,7 +46,7 @@ DEFAULTS = {
 }
 
 #sensors are added here
-SENSORS = ["ctd_spec", "bno_spec", "acoustic_spec"]
+SENSORS = [ctd_spec, bno_spec, acoustic_spec]
 
 #read any changes made in the sensor_config.yaml file and use defaults where no changes
 #input is open and loaded yaml file
