@@ -11,6 +11,7 @@ It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same CTD
 - Deserializes `CtdSensor` protobuf payloads received on `devices/<buoy_uuid>/sensors/ctd`
 - Runs each sensor's raw data through a plausibility check and returns a `SensorStatus` with a `green` / `yellow` / `red` level, a machine-readable reason code, and metrics
 - Ships checks for three sensor types out of the box: CTD temperature, BNO attitude, and Acsense/Beamformer acoustic — see [`registry.py`](src/spear_mqtt_ctd/registry.py)
+- Optionally merges per-sensor threshold overrides from YAML via `load_sensors()`
 - Loads Spear MQTT broker connection details from the same nested YAML shape used by `edge-sensors`
 - Converts buoy serial numbers (`BEN001-0000-00002`) to the MQTT device UUIDs used in topic paths, and back, using the same UUID v5 algorithm as `edge-sensors`
 
@@ -19,10 +20,11 @@ It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same CTD
 ```
 core.py        Frame / SensorSpec / SensorStatus / CheckResult + run_check() — the generic pipeline
 checks.py      check_ctd(), check_bno(), check_acoustic() — per-sensor plausibility logic
-registry.py    ctd_spec, bno_spec, acoustic_spec, SENSORS — wires checks into SensorSpec objects
+registry.py    ctd_spec, bno_spec, acoustic_spec, SENSORS, load_sensors() — wires checks into SensorSpec objects
 parser.py      CTD protobuf (de)serialization, topic helpers
 config.py      Broker YAML loading (BrokerConfig)
 uuid.py        Buoy serial <-> UUID conversion, interactive prompts for buoy/mode selection
+sensor_config.yaml  Optional per-sensor threshold overrides for load_sensors()
 ```
 
 A host application owns the MQTT connection, decodes protobuf messages into a `Frame`, and calls `run_check()` to get a status it can render.
@@ -88,6 +90,45 @@ for spec in SENSORS:
 ```
 
 `Frame.state` persists between calls on the same `Frame` instance — reuse one `Frame` per buoy across successive readings so step/rate checks (like the CTD `max_step_c` check) have a previous value to compare against.
+
+### Override thresholds from YAML
+
+Defaults live on each `SensorSpec` in `registry.py`. To override them, pass a YAML document to `load_sensors()`. Keys must match each sensor's `SensorSpec.key` (`ctd_temp`, `bno_attitude`, `acoustic_acsense_and_beamformer`). Missing keys keep the Python defaults.
+
+Example shape (see [`sensor_config.yaml`](src/spear_mqtt_ctd/sensor_config.yaml) and [`tests/test_config.yaml`](tests/test_config.yaml)):
+
+```yaml
+sensors:
+  ctd_temp:
+    thresholds:
+      min_temp_c: -10.0
+      max_age_sec: 120.0
+      # other CTD keys fall back to defaults
+
+  bno_attitude:
+    thresholds:
+      max_age_sec: 100.0
+
+  acoustic_acsense_and_beamformer:
+    thresholds: {}
+```
+
+```python
+import yaml
+from pathlib import Path
+from spear_mqtt_ctd.registry import load_sensors
+from spear_mqtt_ctd.core import Frame, run_check
+
+config = yaml.safe_load(Path("sensor_config.yaml").read_text(encoding="utf-8"))
+specs = load_sensors(config)
+
+frame = Frame(ctd=parsed_ctd_sensor, buoy_status=parsed_buoy_status)
+for spec in specs:
+    status = run_check(spec, frame)
+    print(f"{spec.name}: {status.level} ({status.reason})")
+```
+
+`load_sensors()` merges YAML `thresholds` into a copy of each default spec and returns the list. It also updates the module-level `SENSORS` list.
 
 ### Parse a raw CTD protobuf payload
 
@@ -189,11 +230,11 @@ On systems with ROS installed, pytest is preconfigured in `pyproject.toml` to av
 | Sample accept rate | `low_sample_accept` | min 99% |
 | Chunk accept rate | `low_chunk_accept` | min 99% |
 
-All thresholds are configurable — pass a custom `dict` in place of a sensor's `default_threshold`.
+All thresholds are configurable — either pass a custom `dict` in place of a sensor's `default_threshold`, or merge overrides from YAML via `load_sensors()` (see above).
 
 ## Environment variables
 
-None. This library takes all configuration as explicit function/constructor arguments — broker credentials are loaded from a YAML file path you supply to `load_broker_config()`, and check thresholds are plain Python values (see `registry.py`). It does not read any values from the process environment.
+None. This library takes all configuration as explicit function/constructor arguments — broker credentials are loaded from a YAML file path you supply to `load_broker_config()`, and check thresholds come from Python defaults in `registry.py` (optionally overridden by a YAML file you pass to `load_sensors()`). It does not read any values from the process environment.
 
 ## Project layout
 
@@ -202,12 +243,13 @@ proto/ctd.proto                 # CTD protobuf schema (from edge-sensors)
 src/spear_mqtt_ctd/
   core.py                       # Frame / SensorSpec / SensorStatus / CheckResult + run_check()
   checks.py                     # check_ctd(), check_bno(), check_acoustic()
-  registry.py                   # ctd_spec, bno_spec, acoustic_spec, SENSORS
+  registry.py                   # ctd_spec, bno_spec, acoustic_spec, SENSORS, load_sensors()
+  sensor_config.yaml            # Example / default threshold overrides for load_sensors()
   parser.py                     # CTD protobuf (de)serialization, topic helpers
   config.py                     # load_broker_config() — Spear MQTT broker YAML
   uuid.py                       # Serial <-> UUID conversion, interactive prompts
   ctd_pb2.py                    # Generated from proto/ctd.proto (do not edit by hand)
-tests/                          # pytest unit tests
+tests/                          # pytest unit tests (incl. yaml_test.py + test_config.yaml)
 examples/run_checker.py         # Minimal example: parse + run_check on a mocked CTD message
 ```
 
