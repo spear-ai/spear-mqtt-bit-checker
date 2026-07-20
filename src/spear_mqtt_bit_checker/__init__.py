@@ -1,8 +1,8 @@
-"""Public API for spear-mqtt-ctd."""
+"""Public API for spear-mqtt-bit-checker."""
 
-from spear_mqtt_ctd.config import BrokerConfig, load_broker_config
-from spear_mqtt_ctd.core import Frame, SensorStatus, run_check
-from spear_mqtt_ctd.parser import (
+from spear_mqtt_bit_checker.config import BrokerConfig, load_broker_config
+from spear_mqtt_bit_checker.core import Frame, SensorStatus, run_check
+from spear_mqtt_bit_checker.parser import (
     CTD_TOPIC_SUFFIX,
     CtdParseError,
     buoy_uuid_from_ctd_topic,
@@ -10,8 +10,8 @@ from spear_mqtt_ctd.parser import (
     is_ctd_topic,
     parse_ctd_payload,
 )
-from spear_mqtt_ctd.registry import SENSORS, acoustic_spec, bno_spec, ctd_spec
-from spear_mqtt_ctd.uuid import (
+from spear_mqtt_bit_checker.registry import SENSORS, acoustic_spec, bno_spec, ctd_spec
+from spear_mqtt_bit_checker.uuid import (
     BuoySelection,
     MonitorMode,
     build_buoy_serial,

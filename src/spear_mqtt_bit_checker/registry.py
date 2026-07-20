@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from spear_mqtt_ctd.checks import check_acoustic, check_bno, check_ctd
-from spear_mqtt_ctd.core import SensorSpec
+from spear_mqtt_bit_checker.checks import check_acoustic, check_bno, check_ctd
+from spear_mqtt_bit_checker.core import SensorSpec
 
 #Defines the defaults for the SensorSpecs
 ctd_spec = SensorSpec(

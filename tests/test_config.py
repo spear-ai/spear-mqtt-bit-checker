@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from spear_mqtt_ctd.config import load_broker_config
+from spear_mqtt_bit_checker.config import load_broker_config
 
 
 def test_load_broker_config(tmp_path: Path) -> None:

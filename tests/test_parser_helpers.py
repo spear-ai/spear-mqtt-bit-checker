@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from spear_mqtt_ctd.parser import buoy_uuid_from_ctd_topic, is_ctd_topic
+from spear_mqtt_bit_checker.parser import buoy_uuid_from_ctd_topic, is_ctd_topic
 
 
 def test_buoy_uuid_from_ctd_topic() -> None:

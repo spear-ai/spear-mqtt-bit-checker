@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from spear_mqtt_ctd import Frame, ctd_spec, run_check
+from spear_mqtt_bit_checker import Frame, ctd_spec, run_check
 
 
 def _sample_ctd(*, temp_c: float = 12.3, age_sec: float = 5.0) -> MagicMock:

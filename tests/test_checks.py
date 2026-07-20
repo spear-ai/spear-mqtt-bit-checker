@@ -1,8 +1,8 @@
 """Tests for the standardized sensor check pipeline"""
 
 from __future__ import annotations
-from spear_mqtt_ctd.core import Frame, run_check
-from spear_mqtt_ctd.registry import acoustic_spec, bno_spec, ctd_spec
+from spear_mqtt_bit_checker.core import Frame, run_check
+from spear_mqtt_bit_checker.registry import acoustic_spec, bno_spec, ctd_spec
 from unittest.mock import MagicMock
 from datetime import datetime, timedelta
 

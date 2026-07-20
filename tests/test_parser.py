@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from spear_mqtt_ctd import ctd_pb2
-from spear_mqtt_ctd.parser import CtdParseError, extract_temperature, parse_ctd_payload
+from spear_mqtt_bit_checker import ctd_pb2
+from spear_mqtt_bit_checker.parser import CtdParseError, extract_temperature, parse_ctd_payload
 
 
 def _serialize_ctd(temperature: float) -> bytes:

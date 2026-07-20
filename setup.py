@@ -23,7 +23,7 @@ class BuildProtobuf(build_py):
 
         root = os.path.dirname(os.path.abspath(__file__))
         proto_dir = os.path.join(root, "proto")
-        out_dir = os.path.join(root, "src", "spear_mqtt_ctd")
+        out_dir = os.path.join(root, "src", "spear_mqtt_bit_checker")
 
         proto_files = glob.glob(os.path.join(proto_dir, "*.proto"))
         if not proto_files:

@@ -1,6 +1,6 @@
 import yaml
 
-from spear_mqtt_ctd.registry import load_sensors, DEFAULTS
+from spear_mqtt_bit_checker.registry import load_sensors, DEFAULTS
 
 from pathlib import Path
 

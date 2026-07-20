@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "spear-mqtt-ctd"
+name = "spear-mqtt-bit-checker"
 version = "0.1.0"
 description = "Library to parse CTD protobuf payloads and evaluate sensor plausibility"
 readme = "README.md"

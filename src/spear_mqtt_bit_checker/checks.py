@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from typing import Any
 import math
 
-from spear_mqtt_ctd.core import CheckResult, Frame
-from spear_mqtt_ctd.parser import extract_temperature
+from spear_mqtt_bit_checker.core import CheckResult, Frame
+from spear_mqtt_bit_checker.parser import extract_temperature
 
 #---- Function to convert time into Python ----
 def _stamp_datetime(stamp: Any) -> datetime | None:

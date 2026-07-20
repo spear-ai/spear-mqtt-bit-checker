@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from google.protobuf.message import DecodeError
 
-from spear_mqtt_ctd import ctd_pb2
+from spear_mqtt_bit_checker import ctd_pb2
 
 CTD_TOPIC_SUFFIX = "/sensors/ctd"
 

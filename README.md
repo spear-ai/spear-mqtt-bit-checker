@@ -1,4 +1,4 @@
-# spear-mqtt-ctd
+# spear-mqtt-bit-checker
 
 A standalone Python library that evaluates the plausibility of sensor telemetry published by Spear buoys — CTD (Conductivity, Temperature, Depth), BNO attitude, and Acsense/Beamformer acoustic stats — and classifies each reading as **green** (healthy), **yellow** (no data / not settled yet), or **red** (implausible).
 
@@ -10,7 +10,7 @@ It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same CTD
 
 - Deserializes `CtdSensor` protobuf payloads received on `devices/<buoy_uuid>/sensors/ctd`
 - Runs each sensor's raw data through a plausibility check and returns a `SensorStatus` with a `green` / `yellow` / `red` level, a machine-readable reason code, and metrics
-- Ships checks for three sensor types out of the box: CTD temperature, BNO attitude, and Acsense/Beamformer acoustic — see [`registry.py`](src/spear_mqtt_ctd/registry.py)
+- Ships checks for three sensor types out of the box: CTD temperature, BNO attitude, and Acsense/Beamformer acoustic — see [`registry.py`](src/spear_mqtt_bit_checker/registry.py)
 - Optionally merges per-sensor threshold overrides from YAML via `load_sensors()`
 - Loads Spear MQTT broker connection details from the same nested YAML shape used by `edge-sensors`
 - Converts buoy serial numbers (`BEN001-0000-00002`) to the MQTT device UUIDs used in topic paths, and back, using the same UUID v5 algorithm as `edge-sensors`
@@ -45,8 +45,8 @@ brew install protobuf
 ## Installation
 
 ```bash
-git clone https://github.com/<your-org>/spear-mqtt-ctd-checker.git
-cd spear-mqtt-ctd-checker
+git clone https://github.com/<your-org>/spear-mqtt-bit-checker.git
+cd spear-mqtt-bit-checker
 python3 -m venv .venv
 source .venv/bin/activate
 pip install .
@@ -64,9 +64,9 @@ pytest -v
 ### Run the CTD check on a parsed message
 
 ```python
-from spear_mqtt_ctd import Frame, ctd_spec, run_check
+from spear_mqtt_bit_checker import Frame, ctd_spec, run_check
 
-frame = Frame(ctd=parsed_ctd_sensor)   # a spear_mqtt_ctd.ctd_pb2.CtdSensor
+frame = Frame(ctd=parsed_ctd_sensor)   # a spear_mqtt_bit_checker.ctd_pb2.CtdSensor
 status = run_check(ctd_spec, frame)
 
 print(status.level, status.plausible, status.reason)
@@ -79,8 +79,8 @@ print(status.level, status.plausible, status.reason)
 ### Run every registered sensor check
 
 ```python
-from spear_mqtt_ctd import SENSORS, run_check
-from spear_mqtt_ctd.core import Frame
+from spear_mqtt_bit_checker import SENSORS, run_check
+from spear_mqtt_bit_checker.core import Frame
 
 frame = Frame(ctd=parsed_ctd_sensor, buoy_status=parsed_buoy_status)
 
@@ -95,7 +95,7 @@ for spec in SENSORS:
 
 Defaults live on each `SensorSpec` in `registry.py`. To override them, pass a YAML document to `load_sensors()`. Keys must match each sensor's `SensorSpec.key` (`ctd_temp`, `bno_attitude`, `acoustic_acsense_and_beamformer`). Missing keys keep the Python defaults.
 
-Example shape (see [`sensor_config.yaml`](src/spear_mqtt_ctd/sensor_config.yaml) and [`tests/test_config.yaml`](tests/test_config.yaml)):
+Example shape (see [`sensor_config.yaml`](src/spear_mqtt_bit_checker/sensor_config.yaml) and [`tests/test_config.yaml`](tests/test_config.yaml)):
 
 ```yaml
 sensors:
@@ -116,8 +116,8 @@ sensors:
 ```python
 import yaml
 from pathlib import Path
-from spear_mqtt_ctd.registry import load_sensors
-from spear_mqtt_ctd.core import Frame, run_check
+from spear_mqtt_bit_checker.registry import load_sensors
+from spear_mqtt_bit_checker.core import Frame, run_check
 
 config = yaml.safe_load(Path("sensor_config.yaml").read_text(encoding="utf-8"))
 specs = load_sensors(config)
@@ -133,7 +133,7 @@ for spec in specs:
 ### Parse a raw CTD protobuf payload
 
 ```python
-from spear_mqtt_ctd import extract_temperature, is_ctd_topic, parse_ctd_payload
+from spear_mqtt_bit_checker import extract_temperature, is_ctd_topic, parse_ctd_payload
 
 if is_ctd_topic(mqtt_topic):
     ctd = parse_ctd_payload(mqtt_payload_bytes)
@@ -143,7 +143,7 @@ if is_ctd_topic(mqtt_topic):
 ### Evaluate acoustic (Acsense + Beamformer) health
 
 ```python
-from spear_mqtt_ctd import Frame, acoustic_spec, run_check
+from spear_mqtt_bit_checker import Frame, acoustic_spec, run_check
 
 frame = Frame(buoy_status=parsed_buoy_status)
 status = run_check(acoustic_spec, frame)
@@ -166,7 +166,7 @@ Uses the same nested YAML format as `edge-sensors` (e.g. `~/.ros/mqtt-broker-spe
 ```
 
 ```python
-from spear_mqtt_ctd import load_broker_config
+from spear_mqtt_bit_checker import load_broker_config
 
 config = load_broker_config("~/.ros/mqtt-broker-spear-hivemq.yaml")
 print(config.host, config.port, config.user)
@@ -179,7 +179,7 @@ Do not commit credentials to git.
 Serials follow `edge-sensors` naming: `{BEN|MDA}001-0000-{unit zero-padded to 5 digits}`.
 
 ```python
-from spear_mqtt_ctd import build_buoy_serial, serial_to_buoy_uuid
+from spear_mqtt_bit_checker import build_buoy_serial, serial_to_buoy_uuid
 
 serial = build_buoy_serial("MDA", "27")       # "MDA001-0000-00027"
 buoy_uuid = serial_to_buoy_uuid(serial)        # UUID used in devices/<uuid>/sensors/ctd
@@ -240,7 +240,7 @@ None. This library takes all configuration as explicit function/constructor argu
 
 ```text
 proto/ctd.proto                 # CTD protobuf schema (from edge-sensors)
-src/spear_mqtt_ctd/
+src/spear_mqtt_bit_checker/
   core.py                       # Frame / SensorSpec / SensorStatus / CheckResult + run_check()
   checks.py                     # check_ctd(), check_bno(), check_acoustic()
   registry.py                   # ctd_spec, bno_spec, acoustic_spec, SENSORS, load_sensors()

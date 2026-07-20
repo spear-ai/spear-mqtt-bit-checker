@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from spear_mqtt_ctd.uuid import (
+from spear_mqtt_bit_checker.uuid import (
     build_buoy_serial,
     prompt_buoy_serial,
     resolve_buoy_selection,
