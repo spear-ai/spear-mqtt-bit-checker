@@ -2,13 +2,12 @@
 
 A standalone Python library that evaluates the plausibility of sensor telemetry published by Spear buoys — CTD (Conductivity, Temperature, Depth), BNO attitude, and Acsense/Beamformer acoustic stats — and classifies each reading as **green** (healthy), **yellow** (no data / not settled yet), or **red** (implausible).
 
-It is designed to be embedded in a host application (e.g. a BIT — Built-In Test — dashboard or GUI) that already receives protobuf-decoded sensor messages, typically over MQTT from the Spear broker. This package does **not** open an MQTT connection or run a CLI itself; it provides the parsing, plausibility-check, and configuration building blocks that a host application wires together.
+It is designed to be embedded in a host application (e.g. a BIT — Built-In Test — dashboard or GUI) that already receives protobuf-decoded sensor messages, typically over MQTT from the Spear broker. This package does **not** open an MQTT connection, deserialize protobufs, or run a CLI itself; it provides the plausibility-check and configuration building blocks that a host application wires together.
 
-It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same CTD protobuf schema, MQTT broker YAML config format, and buoy serial → UUID algorithm, so results are consistent between the two.
+It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same MQTT broker YAML config format and buoy serial → UUID algorithm, so results are consistent between the two. The host owns CTD / buoy-status decoding (e.g. `spear_ros_mqtt.ctd_pb2` in edge-sensors) and passes duck-typed objects into `Frame`.
 
 ## What it does
 
-- Deserializes `CtdSensor` protobuf payloads received on `devices/<buoy_uuid>/sensors/ctd`
 - Runs each sensor's raw data through a plausibility check and returns a `SensorStatus` with a `green` / `yellow` / `red` level, a machine-readable reason code, and metrics
 - Ships checks for three sensor types out of the box: CTD temperature, BNO attitude, and Acsense/Beamformer acoustic — see [`registry.py`](src/spear_mqtt_bit_checker/registry.py)
 - Optionally merges per-sensor threshold overrides from YAML via `load_sensors()`
@@ -21,7 +20,6 @@ It is independent of the `edge-sensors` ROS/GUI codebase but reuses the same CTD
 core.py        Frame / SensorSpec / SensorStatus / CheckResult + run_check() — the generic pipeline
 checks.py      check_ctd(), check_bno(), check_acoustic() — per-sensor plausibility logic
 registry.py    ctd_spec, bno_spec, acoustic_spec, SENSORS, load_sensors() — wires checks into SensorSpec objects
-parser.py      CTD protobuf (de)serialization, topic helpers
 config.py      Broker YAML loading (BrokerConfig)
 uuid.py        Buoy serial <-> UUID conversion, interactive prompts for buoy/mode selection
 sensor_config.yaml  Optional per-sensor threshold overrides for load_sensors()
@@ -32,15 +30,6 @@ A host application owns the MQTT connection, decodes protobuf messages into a `F
 ## Requirements
 
 - Python 3.10+
-- `protoc` (Protocol Buffers compiler) — only needed to regenerate `ctd_pb2.py` from `proto/ctd.proto` when building from source
-
-```bash
-# Ubuntu
-sudo apt install protobuf-compiler
-
-# macOS
-brew install protobuf
-```
 
 ## Installation
 
@@ -61,12 +50,13 @@ pytest -v
 
 ## Usage
 
-### Run the CTD check on a parsed message
+### Run the CTD check on a decoded message
 
 ```python
 from spear_mqtt_bit_checker import Frame, ctd_spec, run_check
 
-frame = Frame(ctd=parsed_ctd_sensor)   # a spear_mqtt_bit_checker.ctd_pb2.CtdSensor
+# Host-decoded CTD object: needs .temperature (float °C) and .stamp (.seconds / .nanos)
+frame = Frame(ctd=parsed_ctd_sensor)
 status = run_check(ctd_spec, frame)
 
 print(status.level, status.plausible, status.reason)
@@ -129,16 +119,6 @@ for spec in specs:
 ```
 
 `load_sensors()` merges YAML `thresholds` into a copy of each default spec and returns the list. It also updates the module-level `SENSORS` list.
-
-### Parse a raw CTD protobuf payload
-
-```python
-from spear_mqtt_bit_checker import extract_temperature, is_ctd_topic, parse_ctd_payload
-
-if is_ctd_topic(mqtt_topic):
-    ctd = parse_ctd_payload(mqtt_payload_bytes)
-    temperature_c = extract_temperature(ctd)
-```
 
 ### Evaluate acoustic (Acsense + Beamformer) health
 
@@ -239,30 +219,27 @@ None. This library takes all configuration as explicit function/constructor argu
 ## Project layout
 
 ```text
-proto/ctd.proto                 # CTD protobuf schema (from edge-sensors)
 src/spear_mqtt_bit_checker/
   core.py                       # Frame / SensorSpec / SensorStatus / CheckResult + run_check()
   checks.py                     # check_ctd(), check_bno(), check_acoustic()
   registry.py                   # ctd_spec, bno_spec, acoustic_spec, SENSORS, load_sensors()
   sensor_config.yaml            # Example / default threshold overrides for load_sensors()
-  parser.py                     # CTD protobuf (de)serialization, topic helpers
   config.py                     # load_broker_config() — Spear MQTT broker YAML
   uuid.py                       # Serial <-> UUID conversion, interactive prompts
-  ctd_pb2.py                    # Generated from proto/ctd.proto (do not edit by hand)
 tests/                          # pytest unit tests (incl. yaml_test.py + test_config.yaml)
-examples/run_checker.py         # Minimal example: parse + run_check on a mocked CTD message
+examples/run_checker.py         # Minimal example: run_check on a mocked CTD message
 ```
 
 ## Relationship to edge-sensors
 
 | Shared with edge-sensors | This project |
 |--------------------------|--------------|
-| `proto/ctd.proto` | Same message format |
 | MQTT broker YAML | Same config path/shape |
 | `serial_to_buoy_uuid` | Same algorithm |
 | CTD seawater range -6°C to 45°C | Same default thresholds |
+| CTD / buoy-status message shape | Host decodes; checks use duck typing |
 
-This repo does **not** require ROS or the Spear GUI to run.
+This repo does **not** require ROS or the Spear GUI to run. Protobuf decoding stays in the host (e.g. `spear_gui` / `spear_ros_mqtt`).
 
 ## License
 

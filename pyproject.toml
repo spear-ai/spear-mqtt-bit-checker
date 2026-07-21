@@ -5,12 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "spear-mqtt-bit-checker"
 version = "0.1.0"
-description = "Library to parse CTD protobuf payloads and evaluate sensor plausibility"
+description = "Library to evaluate Spear buoy sensor plausibility for BIT dashboards"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Proprietary" }
 dependencies = [
-    "protobuf",
     "PyYAML",
 ]
 
@@ -22,4 +21,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-p no:launch_testing"
+addopts = "-p no:launch_testing -p no:launch_testing_ros"

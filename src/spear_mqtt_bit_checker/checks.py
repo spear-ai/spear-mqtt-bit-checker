@@ -6,7 +6,6 @@ from typing import Any
 import math
 
 from spear_mqtt_bit_checker.core import CheckResult, Frame
-from spear_mqtt_bit_checker.parser import extract_temperature
 
 #---- Function to convert time into Python ----
 def _stamp_datetime(stamp: Any) -> datetime | None:
@@ -40,7 +39,9 @@ def check_ctd(
             metrics = None
         )
 
-    ctd_temperature = extract_temperature(frame.ctd)
+    # Host app supplies a decoded CTD object (e.g. spear_ros_mqtt.ctd_pb2.CtdSensor)
+    # with a ``temperature`` attribute in degrees Celsius.
+    ctd_temperature = float(frame.ctd.temperature)
     #check that it is finite
     if not math.isfinite(ctd_temperature):
         return CheckResult(

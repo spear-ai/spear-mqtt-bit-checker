@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal example: parse a CTD payload and run the CTD check pipeline."""
+"""Minimal example: run the CTD check pipeline on a host-decoded CTD-like object."""
 
 from __future__ import annotations
 
