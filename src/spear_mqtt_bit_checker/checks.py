@@ -124,6 +124,16 @@ def check_bno(
             reason="no_data",
             metrics = None
         )
+    offvert = float(getattr(attitude, "offvert_range_1min", 0.0))
+    heading = float(getattr(attitude, "heading_range_1min", 0.0))
+    avg_dps = float(getattr(attitude, "avg_dps_1min", 0.0))
+    accept_rate = float(getattr(attitude, "accept_rate_1min", 0.0))
+    if not all(math.isfinite(x) for x in (avg_dps, accept_rate, offvert, heading)):
+        return CheckResult(
+            plausible=False,
+            reason="not_finite",
+            metrics={"avg_dps": avg_dps, "accept_rate": accept_rate, "offvert": offvert, "heading": heading}
+        )
 
     #check if data is stale
     if reading_time is not None:
@@ -137,7 +147,6 @@ def check_bno(
         )
 
     #check degrees per second
-    avg_dps = float(getattr(attitude, "avg_dps_1min", 0.0))
     if avg_dps > cfg["max_dps"]:
         return CheckResult(
             plausible=False,
@@ -146,7 +155,6 @@ def check_bno(
         )
     
     #accept rate
-    accept_rate = float(getattr(attitude, "accept_rate_1min", 0.0))
     if accept_rate < cfg["min_accept_rate"]:
         return CheckResult(
             plausible=False,
@@ -155,8 +163,6 @@ def check_bno(
         )
     
     #max_range_deg
-    offvert = float(getattr(attitude, "offvert_range_1min", 0.0))
-    heading = float(getattr(attitude, "heading_range_1min", 0.0))
     if max(offvert, heading) > cfg["max_range_deg"]:
         return CheckResult(
             plausible=False,

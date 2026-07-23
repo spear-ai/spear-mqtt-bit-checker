@@ -1,15 +1,24 @@
 sensors:
   ctd_temp:
     thresholds:
-      min_temp_c: -10.0  #Different from default -6.0
-      max_age_sec: 120.0  #Different from default 60.0
-      #Leave other thresholds out - should use defaults
+      min_temp_c: -10.0
+      max_temp_c: 45.0
+      max_age_sec: 120.0
+      max_step_c: 2.0
 
   bno_attitude:
     thresholds:
       max_age_sec: 100.0
-      #Others should go to defaults
+      min_accept_rate: 0.6
+      max_range_deg: 15.0
+      max_dps: 100.0
 
   acoustic_acsense_and_beamformer:
-    thresholds: {}
-    # Empty so this should use all the defaults
+    thresholds:
+      max_age_sec: 90.0
+      target_sps: 52000.0
+      sps_tolerance: 0.02
+      min_total_samples: 10.0
+      min_sample_accept_pct: 99.0
+      min_total_chunks: 10.0
+      min_chunk_accept_pct: 99.0

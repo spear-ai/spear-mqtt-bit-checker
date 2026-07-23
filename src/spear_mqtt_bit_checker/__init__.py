@@ -2,7 +2,7 @@
 
 from spear_mqtt_bit_checker.config import BrokerConfig, load_broker_config
 from spear_mqtt_bit_checker.core import Frame, SensorStatus, run_check
-from spear_mqtt_bit_checker.registry import SENSORS, acoustic_spec, bno_spec, ctd_spec
+from spear_mqtt_bit_checker.registry import SENSORS, load_sensors
 from spear_mqtt_bit_checker.uuid import (
     BuoySelection,
     MonitorMode,
@@ -21,10 +21,8 @@ __all__ = [
     "MonitorMode",
     "SENSORS",
     "SensorStatus",
-    "acoustic_spec",
-    "bno_spec",
     "build_buoy_serial",
-    "ctd_spec",
+    "load_sensors",
     "load_broker_config",
     "prompt_buoy_serial",
     "prompt_monitor_mode",

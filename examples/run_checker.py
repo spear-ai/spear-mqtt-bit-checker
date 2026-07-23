@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from importlib.resources import files
 from unittest.mock import MagicMock
 
-from spear_mqtt_bit_checker import Frame, ctd_spec, run_check
+import yaml
+from spear_mqtt_bit_checker import Frame, load_sensors, run_check
 
 
 def _sample_ctd(*, temp_c: float = 12.3, age_sec: float = 5.0) -> MagicMock:
@@ -21,6 +23,13 @@ def _sample_ctd(*, temp_c: float = 12.3, age_sec: float = 5.0) -> MagicMock:
 
 
 def main() -> None:
+    config = yaml.safe_load(
+        files("spear_mqtt_bit_checker")
+        .joinpath("sensor_config.yaml")
+        .read_text(encoding="utf-8")
+    )
+    ctd_spec = next(spec for spec in load_sensors(config) if spec.key == "ctd_temp")
+
     frame = Frame(ctd=_sample_ctd())
     status = run_check(ctd_spec, frame)
     print(f"level={status.level} plausible={status.plausible} reason={status.reason}")

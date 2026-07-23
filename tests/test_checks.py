@@ -1,10 +1,24 @@
 """Tests for the standardized sensor check pipeline"""
 
 from __future__ import annotations
-from spear_mqtt_bit_checker.core import Frame, run_check
-from spear_mqtt_bit_checker.registry import acoustic_spec, bno_spec, ctd_spec
-from unittest.mock import MagicMock
+
 from datetime import datetime, timedelta
+from importlib.resources import files
+from unittest.mock import MagicMock
+
+import yaml
+from spear_mqtt_bit_checker.core import Frame, run_check
+from spear_mqtt_bit_checker.registry import load_sensors
+
+_config = yaml.safe_load(
+    files("spear_mqtt_bit_checker")
+    .joinpath("sensor_config.yaml")
+    .read_text(encoding="utf-8")
+)
+_by_key = {spec.key: spec for spec in load_sensors(_config)}
+ctd_spec = _by_key["ctd_temp"]
+bno_spec = _by_key["bno_attitude"]
+acoustic_spec = _by_key["acoustic_acsense_and_beamformer"]
 
 #---- CTD Testing ----
 #Creates cfg and Mock CTD Messages for tests to use

@@ -19,6 +19,9 @@ test = ["pytest"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+spear_mqtt_bit_checker = ["*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:launch_testing -p no:launch_testing_ros"
